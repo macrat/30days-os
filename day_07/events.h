@@ -9,7 +9,7 @@ typedef uint8_t event_type_t;
 #define EVENT_MOUSE     ((event_type_t) 0x2c)
 
 struct Event {
-    uint8_t      proceed;
+    uint8_t      active;
     event_type_t type;
     uint8_t      data;
 } typedef event_t;
