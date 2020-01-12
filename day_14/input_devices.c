@@ -43,7 +43,7 @@ void init_input_devices() {
 }
 
 void on_raw_keyboard(const event_t* ev) {
-    static char keytable[0x80] = {
+    static const char keytable[0x80] = {
         0x00,
         0x1b, '1',  '2',  '3',  '4',  '5',  '6',  '7',  '8',  '9',  '0',  '-',  '=',  '\b',
         '\t', 'q',  'w',  'e',  'r',  't',  'y',  'u',  'i',  'o',  'p',  '[',  ']',  '\n', 0x00,

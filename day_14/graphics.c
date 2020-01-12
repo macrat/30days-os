@@ -16,14 +16,13 @@ typedef struct Rectangle {
 } rectangle_t;
 
 typedef struct RedrawMark {
-    rectangle_t window;
-    sprite_t*   source;
+    rectangle_t   window;
+    olist_item_t* source;
 } redraw_mark_t;
 
 typedef struct Screen {
     uint8_t*      buffer;
-    sprite_t*     first;
-    sprite_t      pool[SCREEN_SPRITE_MAX];
+    olist_t*      sprites;
     uint32_t      need_redraw_count;
     redraw_mark_t need_redraw[REDRAW_MARK_MAX];
 } screen_t;
@@ -34,6 +33,8 @@ static screen_t* _screen;
 void init_screen() {
     _screen = malloc(sizeof(screen_t));
     memset(_screen, 0x00, sizeof(screen_t));
+
+    _screen->sprites = create_olist(SCREEN_SPRITE_MAX, sizeof(sprite_t));
 
     _screen->buffer = malloc(get_screen_width() * get_screen_height());
 }
@@ -66,43 +67,11 @@ void set_color(uint8_t id, const color_t color) {
 
 void set_palette(const color_t colors[]) {
     const int eflags = io_load_eflags();
-    asm("CLI");
+    __asm__("CLI");
     for (uint_fast8_t i = 0; i < 16; i++) {
         set_color(i, colors[i]);
     }
     io_store_eflags(eflags);
-}
-
-static void drop_sprite(sprite_t* sprite) {
-    if (_screen->first == 0) return;
-
-    if (_screen->first == sprite) {
-        _screen->first = sprite->next;
-        return;
-    }
-
-    for (sprite_t* itr = _screen->first; itr->next != 0; itr = itr->next) {
-        if (itr->next == sprite) {
-            itr->next = sprite->next;
-            return;
-        }
-    }
-}
-
-static void reorder_sprite(sprite_t* sprite) {
-    drop_sprite(sprite);
-
-    sprite_t** itr = &_screen->first;
-    while (*itr && (*itr)->order < sprite->order) {
-        if ((*itr)->next == sprite) {
-            (*itr)->next = sprite->next;
-            return;
-        }
-
-        itr = &(*itr)->next;
-    }
-    sprite->next = *itr;
-    *itr = sprite;
 }
 
 static void draw_sprite(sprite_t* sprite, rectangle_t window) {
@@ -134,8 +103,8 @@ static void copy_image(uint8_t* dest, uint8_t* src, rectangle_t window) {
 
 void refresh_screen() {
     for (uint32_t i = 0; i < _screen->need_redraw_count; i++) {
-        for (sprite_t* itr = _screen->need_redraw[i].source; itr != 0; itr = itr->next) {
-            draw_sprite(itr, _screen->need_redraw[i].window);
+        for (olist_item_t* itr = _screen->need_redraw[i].source; itr != 0; itr = itr->next) {
+            draw_sprite((sprite_t*)itr->payload, _screen->need_redraw[i].window);
         }
     }
     for (uint32_t i = 0; i < _screen->need_redraw_count; i++) {
@@ -158,68 +127,52 @@ static void mark_as_need_redraw(sprite_t* sprite, uint32_t x, uint32_t y, uint32
     }
 
     _screen->need_redraw[_screen->need_redraw_count].window = window;
-    _screen->need_redraw[_screen->need_redraw_count].source = sprite;
+    _screen->need_redraw[_screen->need_redraw_count].source = sprite->olist_item;
     _screen->need_redraw_count++;
 }
 
 void move_sprite(sprite_t* sprite, int32_t x, int32_t y, uint8_t order) {
-    const bool need_reorder = sprite->order != order;
-
-    mark_as_need_redraw(_screen->first, sprite->x, sprite->y, sprite->width, sprite->height);
+    mark_as_need_redraw((sprite_t*)_screen->sprites->first->payload, sprite->x, sprite->y, sprite->width, sprite->height);
 
     sprite->x = x;
     sprite->y = y;
-    sprite->order = order;
 
-    if (need_reorder) reorder_sprite(sprite);
+    olist_reorder(_screen->sprites, sprite->olist_item, order);
 
-    mark_as_need_redraw(_screen->first, sprite->x, sprite->y, sprite->width, sprite->height);
+    mark_as_need_redraw((sprite_t*)_screen->sprites->first->payload, sprite->x, sprite->y, sprite->width, sprite->height);
 }
 
 sprite_t* create_sprite(int32_t x, int32_t y, uint32_t width, uint32_t height, uint8_t order) {
-    sprite_t* allocated = 0;
-    for (uint_fast16_t i = 0; i < SCREEN_SPRITE_MAX; i++) {
-        if (!_screen->pool[i].active) {
-            allocated = &_screen->pool[i];
-            break;
-        }
-    }
-    if (allocated == 0) return 0;
+    uint8_t* buf = malloc(width * height);
+    if (!buf) return 0;
 
-    allocated->active = true;
-    allocated->x = x;
-    allocated->y = y;
-    allocated->width = width;
-    allocated->height = height;
-    allocated->order = order;
-    allocated->image = malloc(width * height);
-    allocated->next = 0;
+    memset(buf, COLOR_TRANSPARENT, width * height);
 
-    if (allocated->image == 0) {
-        drop_sprite(allocated);
-        allocated->active = false;
+    sprite_t sprite = {
+        .x      = x,
+        .y      = y,
+        .width  = width,
+        .height = height,
+        .image  = buf,
+    };
+    olist_item_t* allocated = olist_push(_screen->sprites, order, &sprite);
+    if (allocated == 0) {
+        free(buf);
         return 0;
     }
 
-    memset(allocated->image, COLOR_TRANSPARENT, width * height);
+    ((sprite_t*)allocated->payload)->olist_item = allocated;
 
-    reorder_sprite(allocated);
-
-    return allocated;
+    return (sprite_t*)allocated->payload;
 }
 
 void destroy_sprite(sprite_t* sprite) {
+    olist_drop(_screen->sprites, sprite->olist_item);
     free(sprite->image);
-    drop_sprite(sprite);
-    sprite->active = false;
 }
 
 int count_sprites() {
-    int count = 0;
-    for (sprite_t* itr = _screen->first; itr; itr = itr->next) {
-        count++;
-    }
-    return count;
+    return olist_item_count(_screen->sprites);
 }
 
 void fill_sprite(sprite_t* sprite, uint8_t color) {

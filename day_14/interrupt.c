@@ -54,27 +54,23 @@ void enable_interrupt() {
 
 // INT 21
 void keyboard_interrupt() {
-    event_t ev = {
-        .type     = EVENT_RAW_KEYBOARD,
-        .uint8[0] = io_in8(PORT_KEYDAT),
-    };
-
     io_out8(PIC0_OCW2, 0x61);
 
-    push_event(ev);
+    push_event((event_t){
+        .type     = EVENT_RAW_KEYBOARD,
+        .uint8[0] = io_in8(PORT_KEYDAT),
+    });
 }
 
 // INT 2c
 void mouse_interrupt() {
-    event_t ev = {
-        .type     = EVENT_RAW_MOUSE,
-        .uint8[0] = io_in8(PORT_KEYDAT),
-    };
-
     io_out8(PIC1_OCW2, 0x64);
     io_out8(PIC0_OCW2, 0x62);
 
-    push_event(ev);
+    push_event((event_t){
+        .type     = EVENT_RAW_MOUSE,
+        .uint8[0] = io_in8(PORT_KEYDAT),
+    });
 }
 
 // INT 60
@@ -84,9 +80,8 @@ void timer_interrupt() {
     static uint32_t counter = 0;
     counter++;
 
-    event_t e = {
+    push_event((event_t){
         .type      = EVENT_TIMER,
         .uint32[0] = counter,
-    };
-    push_event(e);
+    });
 }

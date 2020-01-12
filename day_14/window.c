@@ -2,10 +2,11 @@
 #include "memory.h"
 #include "window.h"
 
+#include "hankaku.h" // debug
 
-#define WINDOW_TOP_ORDER     200
 
-#define WINDOW_MAX_NUM  128
+#define WINDOW_TOP_ORDER 200
+#define WINDOW_MAX_NUM   128
 
 typedef struct WindowManager {
     window_t *focused;
@@ -42,7 +43,7 @@ window_t* create_window(uint32_t width, uint32_t height) {
         get_screen_height()/2 - height/2,
         width,
         height,
-        WINDOW_TOP_ORDER
+        0
     );
     if (fg == 0) {
         window->active = false;
@@ -53,7 +54,7 @@ window_t* create_window(uint32_t width, uint32_t height) {
         get_screen_height()/2 - height/2 - WINROD_BORDER_TICKNESS,
         width + WINROD_BORDER_TICKNESS * 2,
         height + WINROD_BORDER_TICKNESS * 2,
-        WINDOW_TOP_ORDER - 1
+        0
     );
     if (bg == 0) {
         destroy_sprite(fg);
@@ -85,14 +86,25 @@ static void draw_window_background(window_t* window) {
     );
 }
 
+static inline uint_fast32_t get_window_order(window_t* window) {
+    return window->fg->olist_item->order;
+}
+
+static void reorder_window_to(window_t* window, int8_t order) {
+    move_sprite(window->fg, window->fg->x, window->fg->y, order);
+    move_sprite(window->bg, window->bg->x, window->bg->y, order - 1);
+}
+
+static void reorder_window_by(window_t* window, int8_t offset) {
+    reorder_window_to(window, get_window_order(window) + offset * 2);
+}
+
 void destroy_window(window_t* window) {
     for (int i = 0; i < WINDOW_MAX_NUM; i++) {
         window_t* target = &_window_manager->pool[i];
 
-        if (target->active && target->fg->order < window->fg->order) {
-            move_sprite(target->fg, target->fg->x, target->fg->y, target->fg->order + 2);
-            move_sprite(target->bg, target->bg->x, target->bg->y, target->bg->order + 2);
-
+        if (target->active && get_window_order(target) < get_window_order(window)) {
+            reorder_window_by(target, 1);
             draw_window_background(target);
         }
     }
@@ -103,23 +115,24 @@ void destroy_window(window_t* window) {
 }
 
 void focus_window(window_t* window) {
-    if (window->fg->order == WINDOW_TOP_ORDER && _window_manager->focused == window) return;
+    if (get_window_order(window) == WINDOW_TOP_ORDER && _window_manager->focused == window) return;
 
+    const window_t* const old_focused = _window_manager->focused;
     _window_manager->focused = window;
 
     for (int i = 0; i < WINDOW_MAX_NUM; i++) {
         window_t* target = &_window_manager->pool[i];
 
-        if (target->active && target != window && target->fg->order >= window->fg->order) {
-            move_sprite(target->fg, target->fg->x, target->fg->y, target->fg->order - 2);
-            move_sprite(target->bg, target->bg->x, target->bg->y, target->bg->order - 2);
+        if (target->active && target != window && get_window_order(target) >= get_window_order(window)) {
+            reorder_window_by(target, -1);
 
-            draw_window_background(target);
+            if (target == old_focused) {
+                draw_window_background(target);
+            }
         }
     }
 
-    move_sprite(window->fg, window->fg->x, window->fg->y, WINDOW_TOP_ORDER);
-    move_sprite(window->bg, window->bg->x, window->bg->y, WINDOW_TOP_ORDER - 1);
+    reorder_window_to(window, WINDOW_TOP_ORDER);
     draw_window_background(window);
 }
 
@@ -127,8 +140,8 @@ void move_window(window_t* window, int32_t x, int32_t y) {
     x = max(WINROD_BORDER_TICKNESS - (int32_t)window->bg->width, min(get_screen_width() - WINROD_BORDER_TICKNESS, x));
     y = max(WINROD_BORDER_TICKNESS - (int32_t)window->bg->height, min(get_screen_height() - WINROD_BORDER_TICKNESS, y));
 
-    move_sprite(window->fg, x + WINROD_BORDER_TICKNESS, y + WINROD_BORDER_TICKNESS, window->fg->order);
-    move_sprite(window->bg, x, y, window->bg->order);
+    move_sprite(window->fg, x + WINROD_BORDER_TICKNESS, y + WINROD_BORDER_TICKNESS, get_window_order(window));
+    move_sprite(window->bg, x, y, get_window_order(window) - 1);
 }
 
 void clear_window(window_t* window) {
@@ -151,12 +164,12 @@ static window_t* find_window_by_position(int32_t x, int32_t y) {
         window_t* target = &_window_manager->pool[i];
         if (
             target->active
-            && order <= target->fg->order
+            && order <= get_window_order(target)
             && target->bg->x <= x && x <= target->bg->x + (int32_t)target->bg->width
             && target->bg->y <= y && y <= target->bg->y + (int32_t)target->bg->height
         ) {
             window = target;
-            order = target->fg->order;
+            order = get_window_order(target);
         }
     }
 

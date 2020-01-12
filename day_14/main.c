@@ -16,7 +16,7 @@
 
 uint32_t io_load_eflags() {
     uint32_t eax = 0;
-    asm(
+    __asm__(
         "PUSHFL;"
         "POP  %%EAX;"
         :
@@ -26,7 +26,7 @@ uint32_t io_load_eflags() {
 }
 
 void io_store_eflags(uint32_t eflags) {
-    asm(
+    __asm__(
         "PUSH  %%EAX;"
         "POPFL;"
         : "=a"(eflags)
@@ -63,7 +63,7 @@ typedef struct TextEditor {
 } text_editor_t;
 
 void draw_text_editor(window_t* window) {
-    fill_sprite(window->fg, COLOR_TRANSPARENT);
+    fill_sprite(window->fg, COLOR_WHITE);
 
     text_editor_t* editor = (text_editor_t*)window->extra;
     if (editor->show_cursor) {
@@ -173,7 +173,7 @@ benchmark_t* create_benchmark() {
 void main() {
     init_descriptor_table();
     init_pic();
-    asm("STI");
+    __asm__("STI");
 
     init_memory_manager();
     register_memory_area((void*)0x00001000, 0x0009e000);
@@ -218,14 +218,14 @@ void main() {
         bm->counter++;
 
         event_t ev;
-        asm("CLI");
+        __asm__("CLI");
         const event_t* const evp = pop_event();
         if (evp) ev = *evp;
-        asm("STI");
+        __asm__("STI");
 
         if (evp == 0) {
             refresh_screen();
-            //asm("HLT");
+            //__asm__("HLT");
             continue;
         }
 

@@ -5,6 +5,7 @@
 
 #include "hello.h"
 #include "input_devices.h"
+#include "olist.h"
 
 
 #define COLOR_BLACK        (0)
@@ -33,12 +34,10 @@ typedef struct Color {
 extern const color_t SIMPLE_COLORS[];
 
 typedef struct Sprite {
-    bool           active;
-    int32_t        x, y;
-    uint32_t       width, height;
-    uint8_t        order;
-    uint8_t*       image;
-    struct Sprite* next;
+    int32_t       x, y;
+    uint32_t      width, height;
+    uint8_t*      image;
+    olist_item_t* olist_item;
 } sprite_t;
 
 extern void init_screen();

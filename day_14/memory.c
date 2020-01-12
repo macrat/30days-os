@@ -45,7 +45,7 @@ static bool is_cpu_i486() {
 
 static uint32_t load_cr0() {
     uint32_t cr0 = 0;
-    asm(
+    __asm__(
         "MOV  %%EAX, %%CR0;"
         :
         : "a"(cr0)
@@ -54,7 +54,7 @@ static uint32_t load_cr0() {
 }
 
 static void store_cr0(uint32_t cr0) {
-    asm(
+    __asm__(
         "MOV  %%CR0, %%EAX;"
         : "=a"(cr0)
     );
@@ -198,6 +198,13 @@ void free(void* address) {
 void* memset(void* dest, int value, size_t len) {
     for (void* itr=dest; itr < dest + len; itr++) {
         *(int8_t*)itr = (int8_t)value;
+    }
+    return dest;
+}
+
+void* memcpy(void* dest, const void* src, size_t len) {
+    for (uint8_t *d=(uint8_t*)dest, *s=(uint8_t*)src; d < (uint8_t*)dest + len; d++, s++) {
+        *d = *s;
     }
     return dest;
 }

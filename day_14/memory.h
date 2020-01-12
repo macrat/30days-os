@@ -12,3 +12,4 @@ extern int register_memory_area(void* address, size_t size);
 extern void* malloc(size_t size);
 extern void free(void* address);
 extern void* memset(void* dest, int value, size_t len);
+extern void* memcpy(void* dest, const void* src, size_t len);

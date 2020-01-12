@@ -1,8 +1,20 @@
 .PHONY: build run clean
 
 CC = gcc
-CFLAGS = -Wall -Wextra -Wno-main -fshort-enums
-C_SOURCES = desctable.c interrupt.c input_devices.c timer.c graphics.c window.c hankaku.c strings.c events.c memory.c main.c
+CFLAGS = -Wall -Wextra -Wno-main -fshort-enums -std=c11
+C_SOURCES = \
+	desctable.c \
+	events.c \
+	graphics.c \
+	hankaku.c \
+	input_devices.c \
+	interrupt.c \
+	memory.c \
+	olist.c \
+	strings.c \
+	timer.c \
+	window.c \
+	main.c
 
 build: helloos.img
 
