@@ -20,6 +20,8 @@ typedef struct OList {
 } olist_t;
 
 
+extern size_t olist_sizeof(size_t pool_size, size_t payload_size);
+extern olist_t* create_olist_on(void* dest, size_t pool_size, size_t payload_size);
 extern olist_t* create_olist(size_t pool_size, size_t payload_size);
 
 extern olist_item_t* olist_push(olist_t* olist, uint_fast32_t order, const void* payload);

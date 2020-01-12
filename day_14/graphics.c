@@ -15,28 +15,24 @@ typedef struct Rectangle {
     uint32_t width, height;
 } rectangle_t;
 
-typedef struct RedrawMark {
-    rectangle_t   window;
-    olist_item_t* source;
-} redraw_mark_t;
-
-typedef struct Screen {
-    uint8_t*      buffer;
-    olist_t*      sprites;
-    uint32_t      need_redraw_count;
-    redraw_mark_t need_redraw[REDRAW_MARK_MAX];
-} screen_t;
-
-static screen_t* _screen;
+static uint8_t* buffer = 0;
+static olist_t* sprites = 0;
+static olist_t* redraw_marks = 0;
 
 
-void init_screen() {
-    _screen = malloc(sizeof(screen_t));
-    memset(_screen, 0x00, sizeof(screen_t));
+int init_screen() {
+    buffer = malloc(get_screen_width() * get_screen_height());
+    sprites = create_olist(SCREEN_SPRITE_MAX, sizeof(sprite_t));
+    redraw_marks = create_olist(REDRAW_MARK_MAX, sizeof(rectangle_t));
 
-    _screen->sprites = create_olist(SCREEN_SPRITE_MAX, sizeof(sprite_t));
+    if (buffer == 0 || sprites == 0 || redraw_marks == 0) {
+        free(buffer);
+        free(sprites);
+        free(redraw_marks);
+        return -1;
+    }
 
-    _screen->buffer = malloc(get_screen_width() * get_screen_height());
+    return 0;
 }
 
 const color_t SIMPLE_COLORS[] = {
@@ -74,7 +70,7 @@ void set_palette(const color_t colors[]) {
     io_store_eflags(eflags);
 }
 
-static void draw_sprite(sprite_t* sprite, rectangle_t window) {
+static void draw_sprite(const sprite_t* sprite, rectangle_t window) {
     const int32_t top    = max(0, max(sprite->y, window.y));
     const int32_t bottom = min(get_screen_height(), min(sprite->y + sprite->height, window.y + window.height));
     const int32_t left   = max(0, max(sprite->x, window.x));
@@ -88,12 +84,12 @@ static void draw_sprite(sprite_t* sprite, rectangle_t window) {
             const uint8_t color = sprite->image[local_y * sprite->width + local_x];
             if (color > 16) continue;
 
-            _screen->buffer[global_y * get_screen_width() + global_x] = color;
+            buffer[global_y * get_screen_width() + global_x] = color;
         }
     }
 }
 
-static void copy_image(uint8_t* dest, uint8_t* src, rectangle_t window) {
+static void copy_image(uint8_t* dest, const uint8_t* src, rectangle_t window) {
     for (uint32_t y = max(0, window.y); y < max(0, window.y + (int32_t)window.height); y++) {
         for (uint32_t x = max(0, window.x); x < max(0, window.x + (int32_t)window.width); x++) {
             dest[y * get_screen_width() + x] = src[y * get_screen_width() + x];
@@ -102,44 +98,76 @@ static void copy_image(uint8_t* dest, uint8_t* src, rectangle_t window) {
 }
 
 void refresh_screen() {
-    for (uint32_t i = 0; i < _screen->need_redraw_count; i++) {
-        for (olist_item_t* itr = _screen->need_redraw[i].source; itr != 0; itr = itr->next) {
-            draw_sprite((sprite_t*)itr->payload, _screen->need_redraw[i].window);
+    if (!redraw_marks->first) return;
+
+    for (olist_item_t* mitr = redraw_marks->first; mitr; mitr = mitr->next) {
+        const rectangle_t* const mark = (rectangle_t*)mitr->payload;
+
+        for (olist_item_t* sitr = sprites->first; sitr; sitr = sitr->next) {
+            draw_sprite((sprite_t*)sitr->payload, *mark);
         }
     }
-    for (uint32_t i = 0; i < _screen->need_redraw_count; i++) {
-        copy_image(get_bootinfo()->vram, _screen->buffer, _screen->need_redraw[i].window);
+
+    rectangle_t buf;
+    while (olist_pop(redraw_marks, &buf, 0)) {
+        copy_image(get_bootinfo()->vram, buffer, buf);
     }
-    _screen->need_redraw_count = 0;
 }
 
-#define equals_rect(a, b)  ((a).x == (b).x && (a).y == (b).y && (a).width == (b).width && (a).height == (b).height)
+static inline bool rect_is_overwrap(rectangle_t a, rectangle_t b) {
+    return (
+        a.x <= b.x + (int32_t)b.width && b.x + (int32_t)b.width <= a.x + (int32_t)a.width + (int32_t)b.width
+        && a.y <= b.y + (int32_t)b.height && b.y + (int32_t)b.height <= a.y + (int32_t)a.height + (int32_t)b.height
+    );
+}
+
+static void push_redraw_mark(rectangle_t window) {
+    for (olist_item_t* itr = redraw_marks->first; itr; itr = itr->next) {
+        const rectangle_t* const mark = (rectangle_t*)itr->payload;
+
+        if (rect_is_overwrap(*mark, window)) {
+            if (mark->x < window.x) {
+                window.width += window.x - mark->x;
+                window.x = mark->x;
+            }
+            if (mark->y < window.y) {
+                window.height += window.y - mark->y;
+                window.y = mark->y;
+            }
+            if (mark->x + mark->width > window.x + window.width) {
+                window.width = mark->x + mark->width - window.x;
+            }
+            if (mark->y + mark->height > window.y + window.height) {
+                window.height = mark->y + mark->height - window.y;
+            }
+
+            olist_drop(redraw_marks, itr);
+            push_redraw_mark(window);
+            return;
+        }
+    }
+
+    const uint_fast32_t order = get_screen_width() * get_screen_height() - window.width * window.height;
+
+    if (olist_push(redraw_marks, order, &window) == 0) {
+        refresh_screen();
+        olist_push(redraw_marks, order, &window);
+    }
+}
 
 static void mark_as_need_redraw(sprite_t* sprite, uint32_t x, uint32_t y, uint32_t width, uint32_t height) {
-    const rectangle_t window = {sprite->x + x, sprite->y + y, width, height};
-
-    if (_screen->need_redraw_count > 0 && equals_rect(_screen->need_redraw[_screen->need_redraw_count - 1].window, window)) {
-        return;
-    }
-
-    if (_screen->need_redraw_count >= REDRAW_MARK_MAX) {
-        refresh_screen();
-    }
-
-    _screen->need_redraw[_screen->need_redraw_count].window = window;
-    _screen->need_redraw[_screen->need_redraw_count].source = sprite->olist_item;
-    _screen->need_redraw_count++;
+    push_redraw_mark((rectangle_t){sprite->x + x, sprite->y + y, width, height});
 }
 
 void move_sprite(sprite_t* sprite, int32_t x, int32_t y, uint8_t order) {
-    mark_as_need_redraw((sprite_t*)_screen->sprites->first->payload, sprite->x, sprite->y, sprite->width, sprite->height);
+    mark_as_need_redraw((sprite_t*)sprites->first->payload, sprite->x, sprite->y, sprite->width, sprite->height);
 
     sprite->x = x;
     sprite->y = y;
 
-    olist_reorder(_screen->sprites, sprite->olist_item, order);
+    olist_reorder(sprites, sprite->olist_item, order);
 
-    mark_as_need_redraw((sprite_t*)_screen->sprites->first->payload, sprite->x, sprite->y, sprite->width, sprite->height);
+    mark_as_need_redraw((sprite_t*)sprites->first->payload, sprite->x, sprite->y, sprite->width, sprite->height);
 }
 
 sprite_t* create_sprite(int32_t x, int32_t y, uint32_t width, uint32_t height, uint8_t order) {
@@ -148,14 +176,13 @@ sprite_t* create_sprite(int32_t x, int32_t y, uint32_t width, uint32_t height, u
 
     memset(buf, COLOR_TRANSPARENT, width * height);
 
-    sprite_t sprite = {
+    olist_item_t* allocated = olist_push(sprites, order, &(sprite_t){
         .x      = x,
         .y      = y,
         .width  = width,
         .height = height,
         .image  = buf,
-    };
-    olist_item_t* allocated = olist_push(_screen->sprites, order, &sprite);
+    });
     if (allocated == 0) {
         free(buf);
         return 0;
@@ -167,12 +194,12 @@ sprite_t* create_sprite(int32_t x, int32_t y, uint32_t width, uint32_t height, u
 }
 
 void destroy_sprite(sprite_t* sprite) {
-    olist_drop(_screen->sprites, sprite->olist_item);
+    olist_drop(sprites, sprite->olist_item);
     free(sprite->image);
 }
 
 int count_sprites() {
-    return olist_item_count(_screen->sprites);
+    return olist_item_count(sprites);
 }
 
 void fill_sprite(sprite_t* sprite, uint8_t color) {

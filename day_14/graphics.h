@@ -40,7 +40,7 @@ typedef struct Sprite {
     olist_item_t* olist_item;
 } sprite_t;
 
-extern void init_screen();
+extern int init_screen();
 extern void refresh_screen();
 
 #define get_screen_width()   (get_bootinfo()->screen_x)

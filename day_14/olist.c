@@ -2,10 +2,14 @@
 #include "olist.h"
 
 
-olist_t* create_olist(size_t pool_size, size_t payload_size) {
-    const size_t size = offsetof(olist_t, pool) + (offsetof(olist_item_t, payload) + payload_size) * pool_size;
-    olist_t* olist =  (olist_t*)malloc(size);
-    memset(olist, 0x00, size);
+size_t olist_sizeof(size_t pool_size, size_t payload_size) {
+    return offsetof(olist_t, pool) + (offsetof(olist_item_t, payload) + payload_size) * pool_size;
+}
+
+olist_t* create_olist_on(void* dest, size_t pool_size, size_t payload_size) {
+    memset(dest, 0x00, olist_sizeof(pool_size, payload_size));
+
+    olist_t* olist = (olist_t*)dest;
 
     olist->pool_size = pool_size;
     olist->payload_size = payload_size;
@@ -13,11 +17,18 @@ olist_t* create_olist(size_t pool_size, size_t payload_size) {
     return olist;
 }
 
+olist_t* create_olist(size_t pool_size, size_t payload_size) {
+    void* buf = malloc(olist_sizeof(pool_size, payload_size));
+    if (buf == 0) return 0;
+
+    return create_olist_on(buf, pool_size, payload_size);
+}
+
 static olist_item_t* olist_allocate(olist_t* olist) {
     const size_t item_size = offsetof(olist_item_t, payload) + olist->payload_size;
 
     for (unsigned int i = 0; i < olist->pool_size; i++) {
-        olist_item_t* const item = (olist_item_t*)(olist->pool + i * item_size);
+        olist_item_t* const item = (olist_item_t*)(((uint8_t*)olist->pool) + i * item_size);
         if (!item->active) {
             item->active = true;
             return item;
@@ -52,7 +63,7 @@ olist_item_t* olist_push(olist_t* olist, uint_fast32_t order, const void* payloa
 void* olist_pop(olist_t* olist, void* payload_buf, uint_fast32_t* order_buf) {
     if (olist->first == 0) return 0;
 
-    olist_item_t* item = olist->first;
+    olist_item_t* const item = olist->first;
     olist->first = item->next;
 
     if (payload_buf) memcpy(payload_buf, item->payload, olist->payload_size);
@@ -64,7 +75,7 @@ void* olist_pop(olist_t* olist, void* payload_buf, uint_fast32_t* order_buf) {
 }
 
 // drop item from linked list but not set inactive state.
-static void olist_drop_from_list(olist_t* olist, olist_item_t* item) {
+static void olist_drop_from_list(olist_t* olist, const olist_item_t* item) {
     if (olist->first == 0) return;
 
     if (olist->first == item) {

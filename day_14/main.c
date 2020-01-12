@@ -63,18 +63,17 @@ typedef struct TextEditor {
 } text_editor_t;
 
 void draw_text_editor(window_t* window) {
-    fill_sprite(window->fg, COLOR_WHITE);
+    fill_sprite(window->fg, COLOR_TRANSPARENT);
 
     text_editor_t* editor = (text_editor_t*)window->extra;
     if (editor->show_cursor) {
         editor->buf[editor->cursor] = '|';
         editor->buf[editor->cursor+1] = 0x00;
     } else {
-        editor->buf[editor->cursor] = ' ';
-        editor->buf[editor->cursor+1] = 0x00;
+        editor->buf[editor->cursor] = 0x00;
     }
 
-    draw_text(window->fg, 3, 3, editor->buf, get_hankaku_font(), COLOR_BLACK, COLOR_WHITE);
+    draw_text(window->fg, 3, 3, editor->buf, get_hankaku_font(), COLOR_BLACK, COLOR_TRANSPARENT);
 }
 
 void text_editor_on_input(const keyboard_event_t* ev, window_t* window) {
@@ -150,9 +149,14 @@ void benchmark_on_timeout(void* ptr) {
 void benchmark_on_keyboard(const keyboard_event_t* ev, window_t* window) {
     if (ev->type == KEY_PRESS && ev->character == ' ') {
         benchmark_t* bm = (benchmark_t*)window->extra;
+
+        if (bm->index >= BENCHMARK_NUM) {
+            set_timeout(benchmark_on_timeout, window, 3*SECOND);
+        }
         bm->index = -1;
-        fill_sprite(window->fg, COLOR_WHITE);
-        draw_text(window->fg, 3, 3, "restarting...", get_hankaku_font(), COLOR_DARK_GRAY, COLOR_WHITE);
+
+        fill_sprite(window->fg, COLOR_TRANSPARENT);
+        draw_text(window->fg, 3, 3, "restarting...", get_hankaku_font(), COLOR_DARK_GRAY, COLOR_TRANSPARENT);
     }
 }
 
@@ -184,7 +188,8 @@ void main() {
     enable_interrupt();
     init_input_devices();
     init_timeout_manager();
-    init_screen();
+    set_palette(SIMPLE_COLORS);
+    if (init_screen() != 0) return;
 
     create_desktop();
     init_window_manager();
@@ -211,8 +216,6 @@ void main() {
     }
 
     refresh_screen();
-
-    set_palette(SIMPLE_COLORS);
 
     while (1) {
         bm->counter++;
