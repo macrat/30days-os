@@ -1,7 +1,7 @@
 #include <stdbool.h>
+#include <stdlib.h>
 
 #include "hello.h"
-#include "memory.h"
 
 
 #define EFLAGS_AC_BIT     0x00040000
@@ -193,18 +193,4 @@ void free(void* address) {
     for (; i < memory_manager->uses_count; i++) {
         memory_manager->uses[i] = memory_manager->uses[i + 1];
     }
-}
-
-void* memset(void* dest, int value, size_t len) {
-    for (void* itr=dest; itr < dest + len; itr++) {
-        *(int8_t*)itr = (int8_t)value;
-    }
-    return dest;
-}
-
-void* memcpy(void* dest, const void* src, size_t len) {
-    for (uint8_t *d=(uint8_t*)dest, *s=(uint8_t*)src; d < (uint8_t*)dest + len; d++, s++) {
-        *d = *s;
-    }
-    return dest;
 }

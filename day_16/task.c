@@ -1,38 +1,61 @@
 #include <stdbool.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "desctable.h"
-#include "memory.h"
+#include "queue.h"
 #include "task.h"
 #include "timer.h"
 
 
 #define TASK_SWITCH_INTERVAL  2
 #define TASK_SELECTOR_START   3
+#define TASK_QUEUE_SIZE       128
 
+
+typedef struct TaskInfo {
+    bool                  active;
+    task_address_t        address;
+    task_status_segment_t tss;
+} task_info_t;
 
 typedef struct TaskManager {
-    task_t* current;
-    task_t  pool[TASKS_MAX];
+    task_info_t    pool[TASKS_MAX];
+    task_t         current;
+    queue_t        queue[];
 } task_manager_t;
 
 static task_manager_t* _task_manager;
 
 
-void task_switch(task_t* task) {
-    if (task == _task_manager->current) return;
+static inline bool is_same_task(task_t a, task_t b) {
+    return a.selector == b.selector;
+}
+
+void task_switch(task_t task) {
+    if (is_same_task(task, _task_manager->current)) return;
 
     _task_manager->current = task;
 
     __asm__(
         "LJMP  *%0;"
         :
-        : "m"(task->jump_address)
+        : "m"(task)
     );
+}
+
+static void task_switch_to_next() {
+    task_t next;
+
+    if (queue_pop_and_push(_task_manager->queue, &next)) {
+        task_switch(next);
+    }
 }
 
 static void auto_task_switch(void *ptr) {
     set_timeout(auto_task_switch, ptr, TASK_SWITCH_INTERVAL);
-    task_switch(_task_manager->current->next);
+
+    task_switch_to_next();
 }
 
 static void idle_task(void* ptr) {
@@ -42,33 +65,36 @@ static void idle_task(void* ptr) {
 }
 
 void init_task_manager() {
-    _task_manager = malloc(sizeof(task_manager_t));
-    memset(_task_manager, 0x00, sizeof(task_manager_t));
+    _task_manager = malloc(offsetof(task_manager_t, queue) + queue_sizeof(TASK_QUEUE_SIZE, sizeof(task_t)));
 
     for (int i = 0; i < TASKS_MAX; i++) {
-        _task_manager->pool[i].jump_address.selector = (i + TASK_SELECTOR_START) * 8;
+        memset(&_task_manager->pool[i], 0x00, sizeof(task_info_t));
+
+        _task_manager->pool[i].address.offset = 0;
+        _task_manager->pool[i].address.selector = (i + TASK_SELECTOR_START) * 8;
     }
 
-    task_t* cur = _task_manager->current = &_task_manager->pool[0];
-    cur->next = cur->prev = cur;
-    cur->active = true;
+    create_queue_on(_task_manager->queue, TASK_QUEUE_SIZE, sizeof(task_t));
 
-    cur->tss.iomap = 0x40000000;
-
-    set_task_segment(TASK_SELECTOR_START, &cur->tss);
+    _task_manager->pool[0].active = true;
+    _task_manager->pool[0].tss.iomap = 0x40000000;
+    set_task_segment(TASK_SELECTOR_START, &_task_manager->pool[0].tss);
 
     __asm__(
         "LTR  %%AX;"
         :
-        : "a"(cur->jump_address.selector)
+        : "a"(_task_manager->pool[0].address.selector)
     );
+    _task_manager->current = _task_manager->pool[0].address;
 
-    auto_task_switch(0);
+    queue_push(_task_manager->queue, &_task_manager->pool[0].address);
 
     task_start(idle_task, 0);
+
+    set_timeout(auto_task_switch, 0, TASK_SWITCH_INTERVAL);
 }
 
-static task_t* task_allocate() {
+static task_info_t* task_allocate() {
     for (int i = 0; i < TASKS_MAX; i++) {
         if (!_task_manager->pool[i].active) {
             _task_manager->pool[i].active = true;
@@ -78,9 +104,9 @@ static task_t* task_allocate() {
     return 0;
 }
 
-task_t* task_start(task_func_t func, void* arg) {
-    task_t* const task = task_allocate();
-    if (task == 0) return 0;
+task_t task_start(task_func_t func, void* arg) {
+    task_info_t* const task = task_allocate();
+    if (task == 0) return (task_t){0, 0};
 
     task->tss.iomap = 0x40000000;
 
@@ -93,60 +119,44 @@ task_t* task_start(task_func_t func, void* arg) {
     task->tss.es = task->tss.ss = task->tss.ds = task->tss.fs = task->tss.gs = 1 * 8;
     task->tss.cs = 2 * 8;
 
-    set_task_segment(task->jump_address.selector/8, &task->tss);
+    set_task_segment(task->address.selector/8, &task->tss);
 
-    task_wakeup(task);
+    queue_push(_task_manager->queue, &task->address);
 
-    return task;
+    return (task_t)task->address;
 }
 
-void task_sleep(task_t* task) {
-    if (task == 0) {
-        task = _task_manager->current;
+bool task_is_running(task_t task) {
+    for (const queue_item_t* itr = _task_manager->queue->first; itr; itr = itr->next) {
+        if (is_same_task(*(task_t*)itr->payload, task)) {
+            return true;
+        }
     }
+    return false;
+}
 
-    if (!task->active) return;
-
+void task_sleep(task_t task) {
     __asm__("CLI");
 
-    task->prev->next = task->next;
-    task->next->prev = task->prev;
+    queue_drop_by_data(_task_manager->queue, &task);
 
     __asm__("STI");
-
-    if (task == _task_manager->current) {
-        task_switch(task->next);
-    }
 }
 
-void task_wakeup(task_t* task) {
-    if (!task->active) return;
-
+void task_wakeup(task_t task) {
     __asm__("CLI");
 
-    task->prev = _task_manager->current;
-    task->next = _task_manager->current->next;
-
-    task->prev->next = task;
-    task->next->prev = task;
+    if (!task_is_running(task)) {
+        queue_push(_task_manager->queue, &task);
+    }
 
     __asm__("STI");
 
     task_switch(task);
 }
 
-task_t* get_current_task() {
-    return _task_manager->current;
-}
-
 int get_running_task_num() {
-    int count = 1;
-
-    for (task_t* itr = _task_manager->current; itr->next != _task_manager->current; itr = itr->next) {
-        count++;
-    }
-
-    return count;
+    return queue_item_count(_task_manager->queue);
 }
 
 int get_active_task_num() {
@@ -155,4 +165,8 @@ int get_active_task_num() {
         count += _task_manager->pool[i].active;
     }
     return count;
+}
+
+task_t get_current_task() {
+    return _task_manager->current;
 }

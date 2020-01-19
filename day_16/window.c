@@ -1,5 +1,7 @@
+#include <stdlib.h>
+#include <string.h>
+
 #include "math.h"
-#include "memory.h"
 #include "window.h"
 
 #include "hankaku.h" // debug

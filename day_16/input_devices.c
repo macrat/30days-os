@@ -98,12 +98,10 @@ void on_raw_keyboard(const event_t* ev) {
         .modifier  = _keyboard_modifier,
     };
 
-    event_t ev2 = {
+    push_event((event_t){
         .type = EVENT_KEYBOARD,
         .data = *(event_data_t*)&ke,
-    };
-
-    push_event(ev2);
+    });
 }
 
 static void decode_mouse() {
@@ -141,11 +139,10 @@ void on_raw_mouse(const event_t* ev) {
         decode_mouse();
         _mouse_decoder.index = 0;
 
-        event_t ev = {
+        push_event((event_t){
             .type = EVENT_MOUSE,
             .data = *(event_data_t*)(&_mouse_decoder.decoded),
-        };
-        push_event(ev);
+        });
     }
 }
 

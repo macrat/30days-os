@@ -18,7 +18,6 @@ typedef struct EventData {
 } event_data_t;
 
 typedef struct Event {
-    bool         active;
     event_type_t type;
     union {
         uint8_t      uint8[16];
@@ -28,10 +27,9 @@ typedef struct Event {
     };
 } event_t;
 
+
 extern void init_event_queue();
-extern const event_t* peek_event();
-extern const event_t* pop_event();
+extern const event_t* pop_event(event_t* buf);
 extern void push_event(event_t);
 
-extern void subscribe_event(task_t* task);
-extern void unsubscribe_event();
+extern void observe_event(task_t task);

@@ -1,3 +1,5 @@
+#include <string.h>
+
 #include "math.h"
 #include "strings.h"
 
@@ -34,12 +36,6 @@ char* itoa_s(int value, char* str, size_t size, int radix) {
     }
 
     return str;
-}
-
-size_t strlen(const char* str) {
-    size_t len = 0;
-    while (str[++len]);
-    return len;
 }
 
 char* strcpy_s(char* dest, size_t size, const char* src) {

@@ -1,4 +1,6 @@
 #include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "desctable.h"
 #include "events.h"
@@ -166,11 +168,10 @@ void benchmark_task(void* ptr) {
 
     while (1) {
         bm->counter++;
-        //__asm__("HLT");
     }
 }
 
-task_t* create_benchmark(uint32_t x, uint32_t y) {
+task_t create_benchmark(uint32_t x, uint32_t y) {
     benchmark_t* bm = malloc(sizeof(benchmark_t));
     memset(bm, 0x00, sizeof(benchmark_t));
     bm->index = -1;  // drop first
@@ -203,11 +204,18 @@ int* create_counter_window(uint32_t x, uint32_t y) {
 }
 
 void task_count_window_timeout(window_t* win) {
+    static int count = 0;
+    count++;
+
     fill_sprite(win->fg, COLOR_TRANSPARENT);
 
     draw_int(win->fg, 3, 3, get_running_task_num(), 10, get_hankaku_font(), COLOR_BLACK, COLOR_TRANSPARENT);
     draw_char(win->fg, 50/2 - 16/2, 3, '/', get_hankaku_font(), COLOR_BLACK, COLOR_TRANSPARENT);
     draw_int(win->fg, 50/2 + 16/2, 3, get_active_task_num(), 10, get_hankaku_font(), COLOR_BLACK, COLOR_TRANSPARENT);
+
+    draw_rect(win->fg, 0, 0, 3, 3, count%2 ? COLOR_RED : COLOR_WHITE);
+
+    set_timeout((timeout_handler_t)task_count_window_timeout, win, SECOND/10);
 }
 
 void create_task_count_window(uint32_t x, uint32_t y) {
@@ -231,6 +239,9 @@ void main() {
     init_input_devices();
     init_timeout_manager();
     init_task_manager();
+
+    task_t mainloop = get_current_task();
+    observe_event(mainloop);
 
     set_palette(SIMPLE_COLORS);
     init_screen();
@@ -263,22 +274,17 @@ void main() {
     int* counter = create_counter_window(20, 80);
     create_task_count_window(20, 110);
 
-    subscribe_event(0);
-
     while (1) {
         *counter = *counter + 1;
 
         event_t ev;
         __asm__("CLI");
-        const event_t* const evp = pop_event();
-        if (evp) ev = *evp;
-        __asm__("STI");
-
-        if (evp == 0) {
-            task_sleep(0);
-            //__asm__("HLT");
+        if (!pop_event(&ev)) {
+            __asm__("STI");
+            task_sleep(mainloop);
             continue;
         }
+        __asm__("STI");
 
         switch (ev.type) {
         case EVENT_RAW_KEYBOARD:

@@ -1,9 +1,10 @@
 #include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "graphics.h"
 #include "hello.h"
 #include "math.h"
-#include "memory.h"
 #include "strings.h"
 #include "timer.h"
 
